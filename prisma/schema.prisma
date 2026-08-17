@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A academia (tenant). Cada linha = uma academia cliente do SaaS.
+model Tenant {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  cnpj        String?
+  plan        String       @default("standard") // standard | pro
+  users       User[]
+  members     Member[]
+  plans       Plan[]
+  memberships Membership[]
+  checkIns    CheckIn[]
+  payments    Payment[]
+  createdAt   DateTime     @default(now())
+}
+
+// Funcionários/dono — login do sistema
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String   @default("staff") // owner | staff
+  createdAt    DateTime @default(now())
+}
+
+// Aluno
+model Member {
+  id          String       @id @default(cuid())
+  tenantId    String
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  email       String?
+  phone       String?
+  document    String? // CPF
+  birthDate   DateTime?
+  photoUrl    String?
+  qrSecret    String       @unique // segredo do QR (hash)
+  status      String       @default("active") // active | inactive | blocked
+  memberships Membership[]
+  checkIns    CheckIn[]
+  createdAt   DateTime     @default(now())
+
+  @@index([tenantId])
+}
+
+// Planos que a academia vende
+model Plan {
+  id             String       @id @default(cuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String // "Mensal", "Trimestral", "Anual", "Personal"
+  priceCents     Int
+  billingCycle   String // monthly | quarterly | annual
+  durationMonths Int
+  active         Boolean      @default(true)
+  features       String[]     @default([]) // benefícios ("Acesso Total", "Sem Fidelidade"...)
+  highlight      String? // "Recomendado" | "Mais Popular" | "Plano Atual" | null
+  memberships    Membership[]
+
+  @@index([tenantId])
+}
+
+// Vínculo aluno <-> plano + assinatura Asaas
+model Membership {
+  id           String    @id @default(cuid())
+  tenantId     String
+  memberId     String
+  planId       String
+  status       String    @default("active") // active | overdue | canceled
+  startDate    DateTime
+  endDate      DateTime
+  asaasId      String?   @unique // id da assinatura no Asaas
+  asaasCustId  String? // id do customer no Asaas
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  member       Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  plan         Plan      @relation(fields: [planId], references: [id])
+  payments     Payment[]
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId, status])
+}
+
+// Entrada do aluno (check-in)
+model CheckIn {
+  id        String   @id @default(cuid())
+  tenantId  String
+  memberId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([memberId, createdAt])
+}
+
+// Cada cobrança gerada pelo Asaas (atualizada via webhook)
+model Payment {
+  id             String     @id @default(cuid())
+  tenantId       String
+  membershipId   String
+  asaasPaymentId String     @unique
+  amountCents    Int
+  status         String // pending | paid | overdue | refunded
+  dueDate        DateTime
+  paidAt         DateTime?
+  tenant         Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membership     Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  createdAt      DateTime   @default(now())
+
+  @@index([status])
+}

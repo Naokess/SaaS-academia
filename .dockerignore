@@ -1,0 +1,10 @@
+# não copiar para dentro da imagem
+node_modules
+.next
+.git
+.env*
+Dockerfile
+docker-compose*.yml
+docs
+*.tsbuildinfo
+next-env.d.ts
